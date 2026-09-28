@@ -1,5 +1,7 @@
 name: Terraform Deployment
-on: [push]
+
+on:
+  push:
 
 permissions:
   id-token: write
@@ -8,39 +10,29 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./terraform
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Debug GitHub OIDC claims
-        uses: actions/github-script@v7
-        with:
-          script: |
-      const token = await core.getIDToken('https://github.com');
-      const payload = JSON.parse(
-        Buffer.from(token.split('.')[1], 'base64url').toString()
-      );
+      - name: Test GitHub OIDC
+        run: |
+          echo "Requesting GitHub OIDC token..."
 
-      console.log('OIDC subject (sub):', payload.sub);
-      console.log('OIDC audience (aud):', payload.aud);
-      console.log('OIDC repository:', payload.repository);
-      console.log('OIDC ref:', payload.ref);
-      console.log('OIDC repository_owner:', payload.repository_owner);
+          TOKEN=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://github.com" \
+            | jq -r '.value')
 
-      - name: Fetch Keys from Vault
-        uses: hashicorp/vault-action@v3
-        with:
-          url: http://100.26.242.33:8200
-          role: gh-actions-role
-          method: jwt
-          secrets: |
-            aws/creds/terraform-role access_key | AWS_ACCESS_KEY_ID ;
-            aws/creds/terraform-role secret_key | AWS_SECRET_ACCESS_KEY
+          echo "Token received successfully"
 
-      - uses: hashicorp/setup-terraform@v3
-      - run: terraform init
-      - run: terraform plan
-      - run: terraform apply -auto-approve
+          PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f2 | base64 -d 2>/dev/null)
+
+          echo "OIDC payload:"
+          echo "$PAYLOAD" | jq '{
+            sub,
+            aud,
+            repository,
+            ref,
+            repository_owner
+          }'

@@ -1,7 +1,5 @@
 name: Terraform Deployment
-
-on:
-  push:
+on: [push]
 
 permissions:
   id-token: write
@@ -10,29 +8,24 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Test GitHub OIDC
-        run: |
-          echo "Requesting GitHub OIDC token..."
+      - name: Fetch Keys from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: http://100.26.242.33:8200
+          role: gh-actions-role
+          method: jwt
+          secrets: |
+            aws/creds/terraform-role access_key | AWS_ACCESS_KEY_ID ;
+            aws/creds/terraform-role secret_key | AWS_SECRET_ACCESS_KEY
 
-          TOKEN=$(curl -sS \
-            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://github.com" \
-            | jq -r '.value')
-
-          echo "Token received successfully"
-
-          PAYLOAD=$(echo "$TOKEN" | cut -d '.' -f2 | base64 -d 2>/dev/null)
-
-          echo "OIDC payload:"
-          echo "$PAYLOAD" | jq '{
-            sub,
-            aud,
-            repository,
-            ref,
-            repository_owner
-          }'
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform init
+      - run: terraform plan
+      - run: terraform apply -auto-approve
